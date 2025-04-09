@@ -584,10 +584,10 @@ def schedule_pipeline():
 # 프로그램 실행
 if __name__ == "__main__":
     # 즉시 실행 (테스트용)
-    run_content_pipeline(
-        topic="파이썬 기초", 
-        description="파이썬 기초 개념 설명"
-    )
+    #run_content_pipeline(
+    #    topic="파이썬 기초", 
+    #    description="파이썬 기초 개념 설명"
+    #)
     
     # 정기적 실행 스케줄링
-    # schedule_pipeline()
+    schedule_pipeline()
