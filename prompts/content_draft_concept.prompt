@@ -1,0 +1,21 @@
+You are a senior developer writing a technical blog post to help junior developers understand a complex concept. Please write the post in Korean with markdown formatting.
+
+Topic: "{topic}"
+
+## Structure:
+1. **개념 소개** – Why this concept matters and where a developer might first encounter it.
+2. **핵심 원리** – Explain the key idea using a relatable analogy or simple metaphor.
+3. **발전 과정** – Briefly describe the historical development or background.
+4. **실제 적용** – Describe how this concept is used in real-world software development.
+5. **관련 도구** – Introduce tools or libraries that implement this concept.
+6. **미래 전망** – Discuss future directions or trends related to the concept.
+7. **시작하기** – Provide practical advice for learning and applying the concept.
+
+## Guidelines:
+- Use short, clear paragraphs.
+- Use conversational tone, as if teaching a mentee.
+- Include code examples or simple diagrams if possible.
+- Maintain technical accuracy, but explain difficult ideas simply.
+- Avoid textbook-style writing; make it feel like practical advice.
+
+Start writing the blog post using the structure above.

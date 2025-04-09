@@ -26,19 +26,42 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")
 
-# 프로젝트 API 키 직접 할당 - 환경 변수에서 불러오는 대신 직접 할당
-api_key = "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"
-
-# OpenAI 클라이언트 설정 - 직접 API 키 지정
-client = openai.OpenAI(api_key=api_key)
+# OpenAI 클라이언트 설정
+client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 # GitHub 클라이언트 설정
 github_client = Github(GITHUB_TOKEN)
+
+# API 모델 설정 (파일 상단에 추가)
+GPT_MODELS = {
+    "content_creation": "gpt-4o-mini",  # 콘텐츠 생성용 (고품질)
+    "code_examples": "gpt-3.5-turbo",  # 코드 예제 생성용
+    "fact_check": "gpt-3.5-turbo",  # 기술적 정확성 검증용 (정확도 중요)
+    "readability": "gpt-3.5-turbo",  # 가독성 개선용
+    "seo": "gpt-3.5-turbo"  # SEO 최적화용
+}
+
+# 템플릿 타입 결정 함수
+def get_template_type(topic):
+    """주제에 따라 적절한 템플릿 타입을 반환합니다."""
+    topic_lower = topic.lower()
+    if "tutorial" in topic_lower or "guide" in topic_lower or "방법" in topic_lower or "하는 법" in topic_lower or "되고싶다면" in topic_lower:
+        return "tutorial"
+    elif "framework" in topic_lower or "library" in topic_lower or "도구" in topic_lower or "플랫폼" in topic_lower:
+        return "review"
+    else:
+        return "concept"
 
 # 1. 콘텐츠 아이디어 발굴 함수
 def generate_content_ideas():
     print("콘텐츠 아이디어 발굴 중...")
     ideas = []
+    
+    # 이미 포스팅된 주제 로드
+    posted_topics = set()
+    if os.path.exists('posted_topics.txt'):
+        with open('posted_topics.txt', 'r', encoding='utf-8') as f:
+            posted_topics = set(line.strip() for line in f)
     
     try:
         # GitHub 트렌드 분석 - 인기 있는 저장소 가져오기
@@ -102,6 +125,9 @@ def generate_content_ideas():
             "popularity": 100
         })
     
+    # 이미 포스팅된 주제 제외
+    ideas = [idea for idea in ideas if idea['topic'] not in posted_topics]
+    
     # 아이디어를 CSV로 저장
     os.makedirs('data', exist_ok=True)
     df = pd.DataFrame(ideas)
@@ -113,81 +139,21 @@ def generate_content_ideas():
 def create_content_draft(topic, description):
     print(f"'{topic}' 주제로 콘텐츠 초안 작성 중...")
     
-    # 콘텐츠 구조 템플릿 선택 (주제에 따라 다른 템플릿 적용)
-    if "tutorial" in topic.lower() or "guide" in topic.lower():
-        template = "tutorial"
-    elif "framework" in topic.lower() or "library" in topic.lower():
-        template = "review"
-    else:
-        template = "concept"
+    # 프롬프트 파일 로드
+    with open('prompts/content_draft_base.prompt', 'r', encoding='utf-8') as f:
+        base_prompt = f.read().format(topic=topic, description=description)
     
-    # 템플릿별 프롬프트 생성
-    base_prompt = f"""
-    당신은 5년 경력의 개발자로서 주니어 개발자들에게 도움이 되는 블로그를 운영하고 있습니다.
-    '{topic}'에 대한 기술 블로그 글을 작성해주세요.
+    template = get_template_type(topic)
     
-    다음 지침을 반드시 따라주세요:
-    1. 자연스러운 대화체를 사용하고 실제 개발자가 작성한 것 같은 어투를 유지하세요.
-    2. 개인적인 경험이나 실수담, 학습 과정에 대한 이야기를 간략히 포함하세요.
-    3. 마크다운 형식을 사용하되, #, ##와 같은 마크다운 기호는 스페이스를 포함해 자연스럽게 작성하세요.
-    4. 불필요한 반복이나 형식적인 문구는 피하세요.
-    5. 긴 문단보다는 짧고 집중된 단락으로 작성하세요.
-    6. 실무에서 직접 마주친 것 같은 구체적인 예시를 포함하세요.
-    7. 읽는 개발자에게 직접 말하는 듯한 어투를 사용하세요.
-    8. 너무 형식적이거나 교과서적인 설명보다는 실용적인 팁과 함께 설명하세요.
-    9. 기술적 정확성은 유지하되, 복잡한 개념은 쉬운 비유로 설명하세요.
-    10. 한국어로 작성하되, 자연스러운 개발 용어는 영어로 혼용하세요.
+    with open(f'prompts/content_draft_{template}.prompt', 'r', encoding='utf-8') as f:
+        template_prompt = f.read()
     
-    주제 설명: {description}
-    """
-    
-    if template == "tutorial":
-        prompt = base_prompt + """
-        다음과 같은 구조로 작성해주세요:
-        
-        1. 도입부 - 왜 이 기술을 배워야 하는지, 어떤 문제를 해결할 수 있는지 공감대 형성
-        2. 배경 지식 - 필요한 사전 지식과 준비물 설명
-        3. 단계별 구현 - 실습 코드와 함께 설명 (내가 직접 해봤던 경험 추가)
-        4. 핵심 개념 - 튜토리얼 과정에서 알아야 할 주요 개념 설명
-        5. 문제 해결 - 내가 겪었던 오류나 흔한 실수와 해결책
-        6. 실제 활용 - 이 기술을 실무에서 어떻게 활용했는지 사례
-        7. 다음 단계 - 더 배울 수 있는 자료나 심화 주제 제안
-        
-        코드 예제는 작동하는 실제 코드로 제공하고, 주석도 달아주세요.
-        """
-    elif template == "review":
-        prompt = base_prompt + """
-        다음과 같은 구조로 작성해주세요:
-        
-        1. 솔직한 첫인상 - 이 기술을 처음 접했을 때 느낌과 기대
-        2. 주요 특징 - 직접 사용해보며 발견한 핵심 기능들
-        3. 장단점 분석 - 실제 프로젝트에 적용해보며 느낀 좋은 점과 아쉬운 점
-        4. 대안과 비교 - 유사한 다른 기술과 비교 (내가 모두 사용해본 것처럼)
-        5. 실제 사례 - 이 기술을 활용한 프로젝트나 업무 사례
-        6. 성능과 한계 - 실제 환경에서 테스트한 성능과 한계점
-        7. 결론 - 어떤 상황에서 추천하는지, 나의 최종 평가
-        
-        코드 예제나 설정 방법도 포함해주세요.
-        """
-    else:  # concept
-        prompt = base_prompt + """
-        다음과 같은 구조로 작성해주세요:
-        
-        1. 개념 소개 - 이 개념을 처음 접했을 때의 경험과 중요성
-        2. 핵심 원리 - 복잡한 개념을 일상적인 비유로 설명
-        3. 발전 과정 - 이 개념이 어떻게 발전해왔는지 간략한 역사
-        4. 실제 적용 - 이 개념이 실무에서 어떻게 활용되는지 사례
-        5. 관련 도구 - 이 개념을 활용하는 주요 도구나 라이브러리
-        6. 미래 전망 - 앞으로의 발전 가능성과 트렌드
-        7. 시작하기 - 이 개념을 배우기 위한 실용적인 조언
-        
-        가능하면 간단한 코드 예제나 다이어그램으로 설명해주세요.
-        """
+    prompt = base_prompt + template_prompt
     
     # OpenAI API를 사용하여 콘텐츠 초안 생성
     try:
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model=GPT_MODELS["content_creation"],
             messages=[
                 {"role": "system", "content": "당신은 경험 많은 개발자이자 기술 블로그 작가입니다. 실제 개발 경험을 바탕으로 한 글을 작성하며, 형식적이지 않고 개발자들이 실제로 작성한 것 같은 자연스러운 글을 씁니다."},
                 {"role": "user", "content": prompt}
@@ -197,25 +163,16 @@ def create_content_draft(topic, description):
         
         content = response.choices[0].message.content
         
-        # 코드 예제 추가 요청 - 자연스러운 예제 코드 생성 
-        code_prompt = f"""
-        '{topic}'에 대한 실제 개발 현장에서 사용할 수 있는 코드 예제 3개를 작성해주세요.
+        # 코드 예제 추가 요청 (프롬프트 파일에서 로드)
+        with open('prompts/code_examples.prompt', 'r', encoding='utf-8') as f:
+            code_template = f.read()
         
-        코드 예제는 다음과 같은 특징을 가져야 합니다:
-        1. 초급, 중급, 고급 수준으로 구분하여 제공
-        2. 각 예제는 실제 작동하는 코드여야 함
-        3. 주석은 꼭 필요한 부분에만 달고, 실제 개발자가 작성한 것처럼 자연스럽게
-        4. 불필요하게 완벽한 코드보다는 실무에서 자주 볼 수 있는 스타일로 작성
-        5. 라이브러리나 프레임워크를 사용한다면 현업에서 많이 사용하는 최신 버전 기준으로 작성
-        6. 실제 문제 해결 시나리오를 담은 코드 (가능하면 내가 실무에서 작성했던 코드처럼)
-        
-        마치 당신이 동료 개발자에게 실제 업무에서 사용할 수 있는 코드를 공유하는 것처럼 작성해주세요.
-        """
+        code_prompt = code_template.format(topic=topic)
         
         code_response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model=GPT_MODELS["code_examples"],
             messages=[
-                {"role": "system", "content": "당신은 5년차 시니어 개발자로, 실무에서 많은 코드를 작성해왔습니다. 실용적이고 효율적인 코드를 작성하며, 과도한 주석이나 불필요한 설명 없이 깔끔한 코드를 제공합니다."},
+                {"role": "system", "content": "당신은 8년차 시니어 개발자로, 실무에서 많은 코드를 작성해왔습니다. 실용적이고 효율적인 코드를 작성하며, 과도한 주석이나 불필요한 설명 없이 깔끔한 코드를 제공합니다."},
                 {"role": "user", "content": code_prompt}
             ],
             temperature=0.6
@@ -263,23 +220,14 @@ def validate_and_improve_content(topic, content):
     print(f"'{topic}' 콘텐츠 품질 검증 및 개선 중...")
     
     try:
-        # 기술적 정확성 검증 (GPT를 사용한 팩트 체크)
-        fact_check_prompt = f"""
-        다음 개발자 블로그 콘텐츠의 기술적 정확성을 검증해주세요:
+        # 기술적 정확성 검증 (프롬프트 파일에서 로드)
+        with open('prompts/fact_check.prompt', 'r', encoding='utf-8') as f:
+            fact_check_template = f.read()
         
-        {content[:4000]}...
-        
-        다음 사항을 확인해주세요:
-        1. 코드나 기술 설명이 최신 버전과 관행에 맞는지
-        2. 잘못된 정보나 오해의 소지가 있는 내용이 있는지
-        3. 부정확하거나 불완전한 설명이 있는지
-        4. 누락된 중요 정보가 있는지
-        
-        개선이 필요한 부분만 간략하게 지적해주세요.
-        """
+        fact_check_prompt = fact_check_template.format(content=content[:4000])
         
         fact_check_response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model=GPT_MODELS["fact_check"],
             messages=[
                 {"role": "system", "content": "당신은 기술 검증 전문가입니다. 기술 콘텐츠의 정확성을 검증하고 객관적인 피드백을 제공합니다."},
                 {"role": "user", "content": fact_check_prompt}
@@ -288,27 +236,14 @@ def validate_and_improve_content(topic, content):
         
         fact_check_result = fact_check_response.choices[0].message.content
         
-        # 가독성 개선
-        readability_prompt = f"""
-        당신은 개발자 블로그 편집자입니다. 다음 글을 더 읽기 쉽고 자연스럽게 개선해주세요:
-
-        {content[:4000]}...
-
-        다음과 같이 개선해주세요:
-        1. 딱딱한 문체를 자연스러운 대화체로 바꿔주세요 (마치 동료 개발자와 이야기하듯이)
-        2. 너무 긴 문장은 짧고 명확한 문장으로 나눠주세요
-        3. 불필요한 반복이나 형식적인 문구는 제거해주세요
-        4. 전문 용어는 간단한 설명을 자연스럽게 추가해주세요
-        5. 코드 예제의 주석이 있다면 실제 개발자가 작성한 것처럼 자연스럽게 수정해주세요
-        6. 필요한 경우 실무 경험을 바탕으로 한 예시나 일화를 추가해주세요
-        7. 마크다운 형식은 유지하되, 과도한 형식 표시(*, #)는 자연스럽게 조정해주세요
-        8. 읽는 사람에게 직접 말을 걸듯이 대화체를 적절히 사용해주세요
+        # 가독성 개선 (프롬프트 파일에서 로드)
+        with open('prompts/readability.prompt', 'r', encoding='utf-8') as f:
+            readability_template = f.read()
         
-        글의 내용과 구조는 최대한 보존하되, 더 자연스럽고 개발자가 직접 쓴 것처럼 보이게 해주세요.
-        """
+        readability_prompt = readability_template.format(content=content[:4000])
         
         readability_response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model=GPT_MODELS["readability"],
             messages=[
                 {"role": "system", "content": "당신은 경험 많은 개발 블로그 편집자입니다. 기술적 정확성을 유지하면서도 글을 더 자연스럽고 읽기 쉽게 만드는 전문가입니다."},
                 {"role": "user", "content": readability_prompt}
@@ -323,25 +258,14 @@ def validate_and_improve_content(topic, content):
         improved_content = improved_content.replace("*", "")   # 이탤릭체 제거
         improved_content = improved_content.replace("\n\n\n", "\n\n")  # 과도한 줄바꿈 제거
         
-        # SEO 최적화
-        seo_prompt = f"""
-        다음 기술 블로그 콘텐츠에 대한 SEO 최적화 제안을 해주세요:
-
-        {improved_content[:4000]}...
-
-        다음 항목을 포함한 제안을 해주세요:
-
-        1. SEO 제목 - 60자 이내의 검색 최적화된 제목 (원래 주제: {topic})
-        2. 메타 설명 - 150-160자 이내의 검색 결과에 표시될 설명
-        3. 주요 키워드 - 5-8개의 관련성 높은 키워드
-        4. 소제목 개선 - 더 검색 친화적인 소제목 구조 제안
-        5. 콘텐츠 개선 - 키워드 배치, 내부/외부 링크, 이미지 최적화 등에 대한 간략한 제안
+        # SEO 최적화 (프롬프트 파일에서 로드)
+        with open('prompts/seo_optimization.prompt', 'r', encoding='utf-8') as f:
+            seo_template = f.read()
         
-        모든 제안은 실제 적용 가능하고 자연스러워야 합니다. 과도한 키워드 삽입은 피해주세요.
-        """
+        seo_prompt = seo_template.format(content=improved_content[:4000], topic=topic)
         
         seo_response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model=GPT_MODELS["seo"],
             messages=[
                 {"role": "system", "content": "당신은 개발자 블로그 SEO 전문가입니다. 기술 콘텐츠의 검색 엔진 최적화를 위한 실용적인 제안을 제공합니다."},
                 {"role": "user", "content": seo_prompt}
@@ -444,6 +368,11 @@ def publish_to_wordpress(topic, content, meta):
         if response.status_code in [200, 201]:  # 200 OK 또는 201 Created
             post_id = response.json().get('id')
             print(f"'{seo_title}' 콘텐츠 워드프레스 발행 완료 (ID: {post_id})")
+            
+            # 발행 성공 시 주제를 기록
+            with open('posted_topics.txt', 'a', encoding='utf-8') as f:
+                f.write(f"{topic}\n")
+            
             return post_id
         else:
             print(f"발행 실패: {response.status_code} - {response.text}")
@@ -575,7 +504,12 @@ def run_content_pipeline(topic=None, description=None):
 # 정기적 실행 스케줄링 (매주 월요일과 목요일 오전 10시)
 def schedule_pipeline():
     schedule.every().monday.at("10:00").do(run_content_pipeline)
+    schedule.every().tuesday.at("10:00").do(run_content_pipeline)
+    schedule.every().wednesday.at("18:35").do(run_content_pipeline)
     schedule.every().thursday.at("10:00").do(run_content_pipeline)
+    schedule.every().friday.at("10:00").do(run_content_pipeline)
+    schedule.every().saturday.at("10:00").do(run_content_pipeline)
+    schedule.every().sunday.at("10:00").do(run_content_pipeline)
     
     while True:
         schedule.run_pending()
@@ -585,8 +519,8 @@ def schedule_pipeline():
 if __name__ == "__main__":
     # 즉시 실행 (테스트용)
     #run_content_pipeline(
-    #    topic="파이썬 기초", 
-    #    description="파이썬 기초 개념 설명"
+    #    topic="게임 개발자가 되고싶다면", 
+    #    description="게임 개발자가 되고싶다면 어떻게 해야할까?"
     #)
     
     # 정기적 실행 스케줄링

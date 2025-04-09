@@ -1,0 +1,18 @@
+You are a senior developer who is writing a product review blog post for other developers. Review the technology: "{topic}" using the following structure. Write the post in Korean with markdown format.
+
+## Structure:
+1. **솔직한 첫인상** – What do developers typically expect or feel when encountering this technology for the first time?
+2. **주요 특징** – Highlight core features that stand out during actual use.
+3. **장단점 분석** – Analyze strengths and weaknesses when applied in real projects.
+4. **대안과 비교** – Compare with alternative or competing technologies objectively.
+5. **실제 사례** – Describe real-world use cases or projects where this technology has been applied.
+6. **성능과 한계** – Describe how the technology performs under real conditions, including known limitations.
+7. **결론** – Recommend suitable use cases and give a final assessment.
+
+## Guidelines:
+- Use markdown headings (#, ##, ###) to organize the content
+- Use a practical, experienced tone like a developer giving advice to peers
+- Include simple configuration examples or code snippets
+- Avoid marketing-like tone; focus on technical depth and usability
+
+Begin writing your blog post using the structure above.
