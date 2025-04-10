@@ -11,6 +11,7 @@ from googleapiclient.discovery import build
 from dotenv import load_dotenv
 from datetime import datetime
 from textblob import TextBlob
+<<<<<<< Updated upstream
 from prompts.tech_reviews.tech_reviews_prompts import tech_reviews_prompts
 import feedparser
 from config import RSS_FEEDS, OPENAI_MODELS, DEEPINFRA_MODELS, DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, CODE_TEMPERATURE
@@ -18,6 +19,9 @@ import re
 from PIL import Image
 from io import BytesIO
 from ai_clients import OpenAIClient, DeepInfraClient
+=======
+import warnings
+>>>>>>> Stashed changes
 
 # 환경 변수 로드
 load_dotenv()
@@ -52,6 +56,7 @@ github_headers = {
     'Accept': 'application/vnd.github.v3+json'
 }
 
+<<<<<<< Updated upstream
 # GitHub API 직접 호출 함수
 def search_github_repositories(query, sort='stars', order='desc'):
     url = f'https://api.github.com/search/repositories?q={query}&sort={sort}&order={order}'
@@ -154,6 +159,10 @@ def generate_content_ideas(category="programming"):
     df.to_csv('data/content_ideas.csv', index=False)
     print(f"{len(ideas)}개의 콘텐츠 아이디어 발굴 완료")
     return ideas
+=======
+# urllib3 경고 메시지 무시
+warnings.filterwarnings('ignore', message='.*OpenSSL.*')
+>>>>>>> Stashed changes
 
 # 템플릿 타입 결정 함수
 def get_template_type(topic):
@@ -736,6 +745,7 @@ def run_content_pipeline(topic=None, description=None, category="programming"):
 
 # 정기적 실행 스케줄링 (매주 월요일과 목요일 오전 10시)
 def schedule_pipeline():
+<<<<<<< Updated upstream
     # 카테고리별로 스케줄링
     schedule.every().monday.at("10:00").do(run_content_pipeline, category="programming")
     schedule.every().tuesday.at("10:00").do(run_content_pipeline, category="tech_reviews")
@@ -744,13 +754,34 @@ def schedule_pipeline():
     schedule.every().friday.at("10:00").do(run_content_pipeline, category="programming")
     schedule.every().saturday.at("10:00").do(run_content_pipeline, category="tech_reviews")
     schedule.every().sunday.at("10:00").do(run_content_pipeline, category="programming")
+=======
+    print("스케줄러가 시작되었습니다.")
+    print("다음 실행 일정:")
+    print("- 매일 오전 10:00")
+    print("- 수요일 18:35")
     
+    schedule.every().monday.at("10:00").do(run_content_pipeline)
+    schedule.every().tuesday.at("10:00").do(run_content_pipeline)
+    schedule.every().wednesday.at("18:35").do(run_content_pipeline)
+    schedule.every().thursday.at("10:00").do(run_content_pipeline)
+    schedule.every().friday.at("10:00").do(run_content_pipeline)
+    schedule.every().saturday.at("10:00").do(run_content_pipeline)
+    schedule.every().sunday.at("10:00").do(run_content_pipeline)
+>>>>>>> Stashed changes
+    
+    print("스케줄러가 실행 중입니다...")
     while True:
-        schedule.run_pending()
-        time.sleep(60)
+        try:
+            schedule.run_pending()
+            time.sleep(60)
+            # 매 분마다 . 을 출력하여 프로그램이 실행 중임을 표시
+            print(".", end="", flush=True)
+        except Exception as e:
+            print(f"\n스케줄러 실행 중 오류 발생: {str(e)}")
 
 # 프로그램 실행
 if __name__ == "__main__":
+<<<<<<< Updated upstream
     # 즉시 실행 (테스트용)
     #run_content_pipeline(
     #    topic=None,  # 테크 리뷰의 경우 topic과 description은 RSS에서 가져옴
@@ -760,3 +791,15 @@ if __name__ == "__main__":
     
     # 정기적 실행 스케줄링
     schedule_pipeline()
+=======
+    try:
+        print("블로그 자동화 파이프라인 시작...")
+        # 정기적 실행 스케줄링
+        schedule_pipeline()
+    except KeyboardInterrupt:
+        print("\n프로그램이 사용자에 의해 중단되었습니다.")
+    except Exception as e:
+        print(f"\n예상치 못한 오류가 발생했습니다: {str(e)}")
+    finally:
+        print("프로그램이 종료되었습니다.")
+>>>>>>> Stashed changes
