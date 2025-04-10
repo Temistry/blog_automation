@@ -12,6 +12,9 @@ from googleapiclient.discovery import build
 from dotenv import load_dotenv
 from datetime import datetime
 from textblob import TextBlob
+from prompts.tech_reviews.tech_reviews_prompts import tech_reviews_prompts
+import feedparser
+from config import RSS_FEEDS
 
 # 환경 변수 로드
 load_dotenv()
@@ -41,6 +44,99 @@ GPT_MODELS = {
     "seo": "gpt-3.5-turbo"  # SEO 최적화용
 }
 
+def fetch_news_articles():
+    print("뉴스 기사 가져오기 중...")
+    articles = []
+    
+    for feed_url in RSS_FEEDS.get("tech_reviews", []):
+        feed = feedparser.parse(feed_url)
+        for entry in feed.entries:
+            articles.append({
+                "source": "RSS Feed",
+                "topic": entry.title,
+                "description": entry.summary,
+                "url": entry.link
+            })
+    
+    return articles
+
+def generate_content_ideas(category="programming"):
+    print("콘텐츠 아이디어 발굴 중...")
+    ideas = []
+    
+    # 이미 포스팅된 주제 로드
+    posted_topics = set()
+    if os.path.exists('posted_topics.txt'):
+        with open('posted_topics.txt', 'r', encoding='utf-8') as f:
+            posted_topics = set(line.strip() for line in f)
+    
+    if category == "programming":
+        try:
+            # GitHub 트렌드 분석 - 인기 있는 저장소 가져오기
+            popular_languages = ["python", "javascript", "java", "go", "rust"]
+            
+            for lang in popular_languages:
+                try:
+                    repos = github_client.search_repositories(f"language:{lang}", "stars", "desc")
+                    for i, repo in enumerate(repos[:2]):  # 각 언어별로 2개씩
+                        if repo.name:  # repo.name이 None이 아닌 경우에만
+                            ideas.append({
+                                "source": f"GitHub {lang.capitalize()} Trend",
+                                "topic": repo.name,
+                                "description": repo.description or f"{repo.name} 저장소에 대한 분석",
+                                "popularity": repo.stargazers_count
+                            })
+                        if i >= 1:  # 각 언어당 최대 2개 저장소만
+                            break
+                except Exception as e:
+                    print(f"GitHub {lang} 트렌드 검색 중 오류: {str(e)}")
+                    continue
+            
+            # Google 검색 트렌드 분석
+            try:
+                search_service = build("customsearch", "v1", developerKey=GOOGLE_API_KEY)
+                search_terms = ["python tutorial", "javascript framework", "web development", "machine learning", "devops"]
+                
+                for term in search_terms:
+                    try:
+                        results = search_service.cse().list(q=term, cx=GOOGLE_CSE_ID, num=3).execute()
+                        for item in results.get('items', []):
+                            if item['title']:  # item['title']이 None이 아닌 경우에만
+                                ideas.append({
+                                    "source": "Google Search",
+                                    "topic": item['title'],
+                                    "description": item['snippet'],
+                                    "url": item['link']
+                                })
+                    except Exception as e:
+                        print(f"Google 검색 '{term}' 중 오류: {str(e)}")
+                        continue
+            except Exception as e:
+                print(f"Google 검색 API 초기화 중 오류: {str(e)}")
+        
+        except Exception as e:
+            print(f"콘텐츠 아이디어 발굴 중 오류: {str(e)}")
+            # 오류 발생 시 기본 아이디어 추가
+            ideas.append({
+                "source": "Default",
+                "topic": "Python 비동기 프로그래밍 가이드",
+                "description": "파이썬에서 비동기 프로그래밍을 구현하는 방법과 asyncio 라이브러리 활용법",
+                "popularity": 100
+            })
+    else:
+        articles = fetch_news_articles()
+        ideas.extend(articles)
+    
+    # 이미 포스팅된 주제 제외 및 None 주제 필터링
+    ideas = [idea for idea in ideas if idea['topic'] not in posted_topics and idea['topic'] is not None]
+    
+    # 아이디어를 CSV로 저장
+    os.makedirs('data', exist_ok=True)
+    df = pd.DataFrame(ideas)
+    df.to_csv('data/content_ideas.csv', index=False)
+    print(f"{len(ideas)}개의 콘텐츠 아이디어 발굴 완료")
+    return ideas
+
 # 템플릿 타입 결정 함수
 def get_template_type(topic):
     """주제에 따라 적절한 템플릿 타입을 반환합니다."""
@@ -52,100 +148,48 @@ def get_template_type(topic):
     else:
         return "concept"
 
-# 1. 콘텐츠 아이디어 발굴 함수
-def generate_content_ideas():
-    print("콘텐츠 아이디어 발굴 중...")
-    ideas = []
-    
-    # 이미 포스팅된 주제 로드
-    posted_topics = set()
-    if os.path.exists('posted_topics.txt'):
-        with open('posted_topics.txt', 'r', encoding='utf-8') as f:
-            posted_topics = set(line.strip() for line in f)
-    
-    try:
-        # GitHub 트렌드 분석 - 인기 있는 저장소 가져오기
-        # get_trending_repositories 메서드가 없으므로 직접 구현
-        # 언어별 인기 저장소 몇 개 가져오기
-        popular_languages = ["python", "javascript", "java", "go", "rust"]
-        
-        for lang in popular_languages:
-            try:
-                repos = github_client.search_repositories(f"language:{lang}", "stars", "desc")
-                for i, repo in enumerate(repos[:2]):  # 각 언어별로 2개씩
-                    ideas.append({
-                        "source": f"GitHub {lang.capitalize()} Trend",
-                        "topic": repo.name,
-                        "description": repo.description or f"{repo.name} 저장소에 대한 분석",
-                        "popularity": repo.stargazers_count
-                    })
-                    if i >= 1:  # 각 언어당 최대 2개 저장소만
-                        break
-            except Exception as e:
-                print(f"GitHub {lang} 트렌드 검색 중 오류: {str(e)}")
-                continue
-        
-        # Google 검색 트렌드 분석
-        try:
-            search_service = build("customsearch", "v1", developerKey=GOOGLE_API_KEY)
-            search_terms = ["python tutorial", "javascript framework", "web development", "machine learning", "devops"]
-            
-            for term in search_terms:
-                try:
-                    results = search_service.cse().list(q=term, cx=GOOGLE_CSE_ID, num=3).execute()
-                    for item in results.get('items', []):
-                        ideas.append({
-                            "source": "Google Search",
-                            "topic": item['title'],
-                            "description": item['snippet'],
-                            "url": item['link']
-                        })
-                except Exception as e:
-                    print(f"Google 검색 '{term}' 중 오류: {str(e)}")
-                    continue
-        except Exception as e:
-            print(f"Google 검색 API 초기화 중 오류: {str(e)}")
-    
-    except Exception as e:
-        print(f"콘텐츠 아이디어 발굴 중 오류: {str(e)}")
-        # 오류 발생 시 기본 아이디어 추가
-        ideas.append({
-            "source": "Default",
-            "topic": "Python 비동기 프로그래밍 가이드",
-            "description": "파이썬에서 비동기 프로그래밍을 구현하는 방법과 asyncio 라이브러리 활용법",
-            "popularity": 100
-        })
-    
-    # 아이디어가 없으면 기본 아이디어 추가
-    if not ideas:
-        ideas.append({
-            "source": "Default",
-            "topic": "Python 비동기 프로그래밍 가이드",
-            "description": "파이썬에서 비동기 프로그래밍을 구현하는 방법과 asyncio 라이브러리 활용법",
-            "popularity": 100
-        })
-    
-    # 이미 포스팅된 주제 제외
-    ideas = [idea for idea in ideas if idea['topic'] not in posted_topics]
-    
-    # 아이디어를 CSV로 저장
-    os.makedirs('data', exist_ok=True)
-    df = pd.DataFrame(ideas)
-    df.to_csv('data/content_ideas.csv', index=False)
-    print(f"{len(ideas)}개의 콘텐츠 아이디어 발굴 완료")
-    return ideas
-
 # 2. 콘텐츠 구조화 및 초안 작성 함수
-def create_content_draft(topic, description):
+def fetch_latest_articles(feed_urls):
+    """여러 RSS 피드에서 최신 기사를 가져옵니다."""
+    articles = []
+    for feed_url in feed_urls:
+        feed = feedparser.parse(feed_url)
+        if feed.entries:
+            latest_entry = feed.entries[0]
+            articles.append((latest_entry.title, latest_entry.summary))
+    return articles
+
+def create_content_draft(topic, description, category):
+    if topic is None:
+        raise ValueError("Topic cannot be None")
+    
     print(f"'{topic}' 주제로 콘텐츠 초안 작성 중...")
     
+    if category == "programming":
+        content = create_programming_draft(topic, description)
+    elif category == "tech_reviews":
+        content = create_tech_review_draft(topic, description)
+    else:
+        raise ValueError("지원하지 않는 카테고리입니다.")
+    
+    if content:
+        # 콘텐츠 저장
+        os.makedirs('drafts', exist_ok=True)
+        with open(f"drafts/{topic.replace(' ', '_').lower()}.md", "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"'{topic}' 콘텐츠 초안 작성 완료")
+    return content
+
+def create_programming_draft(topic, description):
+    prompt_path = 'prompts/programming/'
+    base_prompt_file = 'content_draft_base.prompt'
+    template_prompt_file = f'content_draft_{get_template_type(topic)}.prompt'
+    
     # 프롬프트 파일 로드
-    with open('prompts/content_draft_base.prompt', 'r', encoding='utf-8') as f:
+    with open(f'{prompt_path}{base_prompt_file}', 'r', encoding='utf-8') as f:
         base_prompt = f.read().format(topic=topic, description=description)
     
-    template = get_template_type(topic)
-    
-    with open(f'prompts/content_draft_{template}.prompt', 'r', encoding='utf-8') as f:
+    with open(f'{prompt_path}{template_prompt_file}', 'r', encoding='utf-8') as f:
         template_prompt = f.read()
     
     prompt = base_prompt + template_prompt
@@ -158,13 +202,13 @@ def create_content_draft(topic, description):
                 {"role": "system", "content": "당신은 경험 많은 개발자이자 기술 블로그 작가입니다. 실제 개발 경험을 바탕으로 한 글을 작성하며, 형식적이지 않고 개발자들이 실제로 작성한 것 같은 자연스러운 글을 씁니다."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.7  # 약간의 창의성 추가
+            temperature=0.7
         )
         
         content = response.choices[0].message.content
         
-        # 코드 예제 추가 요청 (프롬프트 파일에서 로드)
-        with open('prompts/code_examples.prompt', 'r', encoding='utf-8') as f:
+        # 코드 예제 추가 요청
+        with open(f'{prompt_path}code_examples.prompt', 'r', encoding='utf-8') as f:
             code_template = f.read()
         
         code_prompt = code_template.format(topic=topic)
@@ -179,25 +223,14 @@ def create_content_draft(topic, description):
         )
         
         code_examples = code_response.choices[0].message.content
-        
-        # 최종 콘텐츠 조합 및 후처리
-        final_content = content + "\n\n## 실무에서 바로 쓸 수 있는 코드 예제\n\n" + code_examples
+        content += "\n\n## 실무에서 바로 쓸 수 있는 코드 예제\n\n" + code_examples
         
         # AI 티가 나는 패턴 제거
-        final_content = final_content.replace("**", "")  # 불필요한 볼드체 제거
-        final_content = final_content.replace("*", "")   # 불필요한 이탤릭체 제거
-        
-        # 불필요한 정형화된 문구 제거 
-        final_content = final_content.replace("제 경험을 바탕으로", "제가 개발하면서 겪었던 경험으로는")
-        final_content = final_content.replace("다음은", "여기 보면")
-        final_content = final_content.replace("다음과 같습니다", "이렇게 작성할 수 있어요")
-        final_content = final_content.replace("마치겠습니다", "마무리하겠습니다")
-        final_content = final_content.replace("소개해 드리겠습니다", "살펴보겠습니다")
+        content = clean_content(content)
         
     except Exception as e:
         print(f"콘텐츠 생성 중 오류 발생: {str(e)}")
-        # 간단한 예시 콘텐츠 생성
-        final_content = f"""
+        content = f"""
         # {topic}
         
         ## 소개
@@ -207,13 +240,86 @@ def create_content_draft(topic, description):
         오류 메시지: {str(e)}
         """
     
-    # 콘텐츠 저장
-    os.makedirs('drafts', exist_ok=True)
-    with open(f"drafts/{topic.replace(' ', '_').lower()}.md", "w", encoding="utf-8") as f:
-        f.write(final_content)
+    return content
+
+def create_tech_review_draft(topic, description):
+    # 영어 토픽 제목을 한글로 번역
+    korean_title = translate_to_korean(topic)
+    print(f"원본 제목: '{topic}'")
+    print(f"번역된 제목: '{korean_title}'")
     
-    print(f"'{topic}' 콘텐츠 초안 작성 완료")
-    return final_content
+    # 번역된 한글 제목과 원본 영어 제목을 함께 사용
+    base_prompt = tech_reviews_prompts["1_content_draft_base.prompt"].replace(
+        "{{PRODUCT_NAME}}", f"{korean_title} ({topic})"
+    )
+    
+    # OpenAI API를 사용하여 콘텐츠 초안 생성
+    try:
+        response = client.chat.completions.create(
+            model=GPT_MODELS["content_creation"],
+            messages=[
+                {"role": "system", "content": "당신은 최신 테크 기기에 대한 정보를 온라인에서 수집하고 정리하는 AI 리서처입니다."},
+                {"role": "user", "content": base_prompt}
+            ],
+            temperature=0.7
+        )
+        
+        content = response.choices[0].message.content
+        
+        # 제목을 한글 제목으로 대체
+        content = content.replace(topic, korean_title)
+        
+        # AI 티가 나는 패턴 제거
+        content = clean_content(content)
+        
+    except Exception as e:
+        print(f"콘텐츠 생성 중 오류 발생: {str(e)}")
+        content = f"""
+        # {korean_title}
+        
+        ## 소개
+        {description}
+        
+        ## 이 글은 OpenAI API 오류로 인해 자동 생성되지 못했습니다.
+        오류 메시지: {str(e)}
+        """
+    
+    return content
+
+def translate_to_korean(text):
+    """영어 텍스트를 한글로 번역합니다."""
+    # 이미 한글이면 그대로 반환
+    if any('\uAC00' <= char <= '\uD7A3' for char in text):
+        return text
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "당신은 영어를 한국어로 자연스럽게 번역하는 전문가입니다. 제품명이나 기술 용어는 적절히 한글과 영문 병기하되, 의미 전달이 자연스러운 한글 제목으로 번역하세요."},
+                {"role": "user", "content": f"다음 텍스트를 한국어로 번역해주세요. 번역 결과만 출력하세요:\n\n{text}"}
+            ],
+            temperature=0.3,
+            max_tokens=100
+        )
+        
+        translated = response.choices[0].message.content.strip()
+        return translated
+        
+    except Exception as e:
+        print(f"번역 중 오류 발생: {str(e)}")
+        return text  # 오류 발생 시 원본 반환
+
+def clean_content(content):
+    """AI 티가 나는 패턴 제거"""
+    content = content.replace("**", "")  # 불필요한 볼드체 제거
+    content = content.replace("*", "")   # 불필요한 이탤릭체 제거
+    content = content.replace("제 경험을 바탕으로", "제가 개발하면서 겪었던 경험으로는")
+    content = content.replace("다음은", "여기 보면")
+    content = content.replace("다음과 같습니다", "이렇게 작성할 수 있어요")
+    content = content.replace("마치겠습니다", "마무리하겠습니다")
+    content = content.replace("소개해 드리겠습니다", "살펴보겠습니다")
+    return content
 
 # 3. 품질 검증 및 개선 함수
 def validate_and_improve_content(topic, content):
@@ -331,32 +437,73 @@ def publish_to_wordpress(topic, content, meta):
         auth = (WORDPRESS_USERNAME, WORDPRESS_PASSWORD)
         print("기본 인증 방식 사용 (Application Password 사용 권장)")
     
-    # 제목 설정 - SEO 메타데이터에서 제안된 제목 추출 로직 개선
+    # 제목 설정 로직 개선
     seo_title = ""
     seo_suggestions = meta.get("seo_suggestions", "")
     
-    # SEO 제안에서 제목 추출 시도
+    # SEO 제안에서 제목 추출 시도 (더 정확한 패턴 매칭)
     if seo_suggestions:
-        for line in seo_suggestions.split("\n"):
-            if "제목:" in line or "title:" in line.lower() or "제목 제안:" in line:
-                seo_title = line.replace("제목:", "").replace("Title:", "").replace("title:", "").replace("제목 제안:", "").strip()
-                # 마크다운 서식 제거 (**, ##, * 등)
-                seo_title = seo_title.replace("*", "").replace("#", "").replace("`", "").strip()
+        # 먼저 정확한 패턴 매칭 시도
+        import re
+        title_patterns = [
+            r"제목:\s*(.+?)(?:\n|$)",
+            r"title:\s*(.+?)(?:\n|$)",
+            r"제목 제안:\s*(.+?)(?:\n|$)",
+            r"최적화된 제목:\s*(.+?)(?:\n|$)",
+            r"SEO 제목:\s*(.+?)(?:\n|$)"
+        ]
+        
+        for pattern in title_patterns:
+            matches = re.search(pattern, seo_suggestions, re.IGNORECASE)
+            if matches:
+                seo_title = matches.group(1).strip()
+                # 마크다운 서식 제거
+                seo_title = re.sub(r'[*#`]', '', seo_title).strip()
                 break
+        
+        # 패턴 매칭 실패 시 줄별 검색
+        if not seo_title:
+            for line in seo_suggestions.split("\n"):
+                if "제목:" in line or "title:" in line.lower() or "제목 제안:" in line:
+                    seo_title = line.split(":", 1)[1].strip() if ":" in line else ""
+                    # 마크다운 서식 제거
+                    seo_title = re.sub(r'[*#`]', '', seo_title).strip()
+                    break
     
-    # 제목이 유효하지 않으면 원본 주제 사용
-    if not seo_title or len(seo_title) < 5 or "SEO" in seo_title or "최적화" in seo_title:
+    # 제목과 콘텐츠의 일관성 검증
+    if seo_title and len(seo_title) >= 5 and "SEO" not in seo_title and "최적화" not in seo_title:
+        # 기본 일관성 체크: 제목의 주요 키워드가 콘텐츠에 포함되는지
+        # 제목에서 중요 키워드 추출 (2~4 단어)
+        import re
+        keywords = re.findall(r'\w+', seo_title.lower())
+        keywords = [k for k in keywords if len(k) > 2]  # 짧은 단어 제외
+        
+        # 콘텐츠에 키워드 존재 여부 확인
+        content_lower = content.lower()
+        matched_keywords = [k for k in keywords if k in content_lower]
+        
+        # 키워드 일치율 계산
+        match_rate = len(matched_keywords) / len(keywords) if keywords else 0
+        
+        # 일치율이 낮으면 원본 주제 사용
+        if match_rate < 0.5:  # 50% 미만일 경우
+            print(f"[경고] SEO 제안 제목({seo_title})이 콘텐츠와 불일치합니다(일치율: {match_rate:.2f})")
+            print(f"[정보] 원본 주제를 사용합니다: '{topic}'")
+            seo_title = topic
+    else:
+        # 제목이 유효하지 않으면 원본 주제 사용
         print(f"[정보] SEO 제안 제목이 유효하지 않아 원본 주제를 사용합니다: '{topic}'")
         seo_title = topic
     
     print(f"사용할 제목: '{seo_title}'")
     
-    # 포스트 데이터 구성 - Exp 카테고리 ID 직접 지정
+    # 포스트 데이터 구성 - Tech 카테고리 ID로 변경
+    tech_category_id = 15  # "Tech" 카테고리의 실제 ID로 변경 필요
     post_data = {
         'title': seo_title,
         'content': content,
         'status': 'publish',  # 바로 게시 상태로 발행
-        'categories': [13]    # Exp 카테고리 ID
+        'categories': [tech_category_id]  # Tech 카테고리 ID
     }
     
     # API 호출
@@ -369,7 +516,7 @@ def publish_to_wordpress(topic, content, meta):
             post_id = response.json().get('id')
             print(f"'{seo_title}' 콘텐츠 워드프레스 발행 완료 (ID: {post_id})")
             
-            # 발행 성공 시 주제를 기록
+            # 발행 성과 시 주제를 기록
             with open('posted_topics.txt', 'a', encoding='utf-8') as f:
                 f.write(f"{topic}\n")
             
@@ -451,8 +598,8 @@ def analyze_performance(post_id, days=7):
     return performance
 
 # 파이프라인 통합 함수
-def run_content_pipeline(topic=None, description=None):
-    print("블로그 콘텐츠 자동화 파이프라인 실행 중...")
+def run_content_pipeline(topic=None, description=None, category="programming"):
+    print(f"블로그 콘텐츠 자동화 파이프라인 실행 중... 카테고리: {category}")
     
     # 디렉토리 생성
     os.makedirs('drafts', exist_ok=True)
@@ -461,7 +608,7 @@ def run_content_pipeline(topic=None, description=None):
     
     # 1. 아이디어 발굴 (topic이 제공되지 않은 경우)
     if not topic:
-        ideas = generate_content_ideas()
+        ideas = generate_content_ideas(category)
         if ideas:
             # 인기도 기준으로 정렬하고 최상위 아이디어 선택
             sorted_ideas = sorted(ideas, key=lambda x: x.get('popularity', 0), reverse=True)
@@ -470,7 +617,7 @@ def run_content_pipeline(topic=None, description=None):
             description = idea['description']
     
     # 2. 콘텐츠 초안 작성
-    content = create_content_draft(topic, description)
+    content = create_content_draft(topic, description, category)
     
     # 콘텐츠 유효성 검사
     if not content or content.strip() == "":
@@ -503,13 +650,21 @@ def run_content_pipeline(topic=None, description=None):
 
 # 정기적 실행 스케줄링 (매주 월요일과 목요일 오전 10시)
 def schedule_pipeline():
-    schedule.every().monday.at("10:00").do(run_content_pipeline)
-    schedule.every().tuesday.at("10:00").do(run_content_pipeline)
-    schedule.every().wednesday.at("18:35").do(run_content_pipeline)
-    schedule.every().thursday.at("10:00").do(run_content_pipeline)
-    schedule.every().friday.at("10:00").do(run_content_pipeline)
-    schedule.every().saturday.at("10:00").do(run_content_pipeline)
-    schedule.every().sunday.at("10:00").do(run_content_pipeline)
+    # 카테고리별로 스케줄링
+    schedule.every().monday.at("10:00").do(run_content_pipeline, category="programming")
+    schedule.every().tuesday.at("10:00").do(run_content_pipeline, category="tech_reviews")
+    schedule.every().wednesday.at("10:00").do(run_content_pipeline, category="programming")
+
+    schedule.every().thursday.at("13:55").do(run_content_pipeline, category="tech_reviews")
+    schedule.every().thursday.at("16:20").do(run_content_pipeline, category="tech_reviews")
+    schedule.every().thursday.at("18:03").do(run_content_pipeline, category="tech_reviews")
+
+    
+    schedule.every().friday.at("10:00").do(run_content_pipeline, category="programming")
+
+
+    schedule.every().saturday.at("10:00").do(run_content_pipeline, category="tech_reviews")
+    schedule.every().sunday.at("10:00").do(run_content_pipeline, category="programming")
     
     while True:
         schedule.run_pending()
@@ -519,8 +674,9 @@ def schedule_pipeline():
 if __name__ == "__main__":
     # 즉시 실행 (테스트용)
     #run_content_pipeline(
-    #    topic="게임 개발자가 되고싶다면", 
-    #    description="게임 개발자가 되고싶다면 어떻게 해야할까?"
+    #    topic=None,  # 테크 리뷰의 경우 topic과 description은 RSS에서 가져옴
+    #    description=None,
+    #    category="tech_reviews"
     #)
     
     # 정기적 실행 스케줄링
