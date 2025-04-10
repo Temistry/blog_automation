@@ -1,0 +1,1 @@
+pip install pandas numpy openai requests python-dotenv schedule feedparser textblob PyGithub google-api-python-client
